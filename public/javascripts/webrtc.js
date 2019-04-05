@@ -25,15 +25,13 @@ let ws_conn;
 let mediaStreamSource;
 let remote_stream;
 let local_stream;
-// let videoElement;
-let audioElement;
+let audioElement = null;
+let videoElement = null;
 let audioEnabled = false;
 let videoEnabled = false;
-// TODO REMOVE
-let videoElement = document.getElementById('stream');
 let webRTCEndLoad = null;
 let webRTCStartLoad = null;
-sender = null;
+senderAudio = null;
 
 function getOurId() {
     return Math.floor(Math.random() * (9000 - 10) + 10).toString();
@@ -69,11 +67,11 @@ function startOutgoingStream() {
         // TODO Investigate new API and fix AddTrack 
         // let audioTracks = local_stream.getAudioTracks();
         // if (audioTracks.length == 1) {
-        //     if (sender && sender.track) {
-        //         peer_connection.removeTrack(sender);
+        //     if (senderAudio && senderAudio.track) {
+        //         peer_connection.removeTrack(senderAudio);
         //     }
-        //     // sender = peer_connection.addTrack(audioTracks[0], local_stream);
-        //     sender = peer_connection.addTrack(audioTracks[0]);
+        //     // senderAudio = peer_connection.addTrack(audioTracks[0], local_stream);
+        //     senderAudio = peer_connection.addTrack(audioTracks[0]);
         //     peer_connection.createOffer({ offerToReceiveAudio: 1 })
         //     // peer_connection.createOffer(default_constraints)
         //     .then(function(offer) {
@@ -99,7 +97,7 @@ function startOutgoingStream() {
 }
 function stopOutgoingStream() {
     // TODO Negotiation mechanism
-    // peer_connection.removeTrack(sender);
+    // peer_connection.removeTrack(senderAudio);
     // peer_connection.createOffer({ offerToReceiveAudio: 1 })
     // .then(function(offer) {
     //     return peer_connection.setLocalDescription(offer);
@@ -114,8 +112,8 @@ function stopOutgoingStream() {
 
     // Release the webcam and mic
     // TODO Investigate new API and fix AddTrack 
-    // if (sender) {
-    //     peer_connection.removeTrack(sender);
+    // if (senderAudio) {
+    //     peer_connection.removeTrack(senderAudio);
     // }
     // var senders = peer_connection.getSenders();
     // senders.forEach(element => {
@@ -138,11 +136,16 @@ function createLocalStream(msg, callback) {
         navigator.mediaDevices.getUserMedia(default_constraints)
         .then((stream) => {
             console.log('Adding local stream');
+            peer_connection.addStream(stream);
             local_stream = stream;
-            let audioTrack = local_stream.getAudioTracks()[0];
-            audioTrack.enabled = true;
-            // sender = peer_connection.addTrack(audioTrack, local_stream);
-            sender = peer_connection.addTrack(audioTrack);
+            stream.getAudioTracks()[0].enabled = false;
+            document.getElementById('local_video').srcObject = stream;
+            // let audioTrack = local_stream.getAudioTracks()[0];
+            // audioTrack.enabled = true;
+            // senderAudio = peer_connection.addTrack(audioTrack);
+            // let videoTrack = local_stream.getVideoTracks()[0];
+            // videoTrack.enabled = true;
+            // senderVideo = peer_connection.addTrack(videoTrack);
             // TODO
             if (callback) {
                 callback(msg);    
@@ -164,21 +167,26 @@ function onIncomingSDP(description) {
         setStatus("Remote SDP set");
     } else if (description.type == "offer") {
         setStatus("Got SDP offer");
-        // local_stream_promise.then((stream) => {
-        setStatus("Got local stream, creating answer");
-        peer_connection.createAnswer()
-        // peer_connection.createOffer(default_constraints)
-        .then(function(answer) {
-            return peer_connection.setLocalDescription(answer);
-        })
-        .then(function() {
-            setStatus("Sending SDP answer");
-            sdp = {'sdp': peer_connection.localDescription}
-            console.log(JSON.stringify(peer_connection.localDescription));
-            ws_conn.send(JSON.stringify(sdp));
-        })
-        .catch(setError);
-        stopOutgoingStream();
+        peer_connection.setRemoteDescription(new RTCSessionDescription(description))
+            .then(() => navigator.mediaDevices.getUserMedia(default_constraints))
+            .then(stream => peer_connection.addStream(stream))
+            .then(() => {
+                return peer_connection.createAnswer({
+                    offerToReceiveAudio: 1,
+                    offerToReceiveVideo: 1
+                });
+            })
+            .then(function(answer) {
+                return peer_connection.setLocalDescription(answer);
+            })
+            .then(function() {
+                setStatus("Sending SDP answer");
+                sdp = {'sdp': peer_connection.localDescription}
+                    console.log(JSON.stringify(peer_connection.localDescription));
+                ws_conn.send(JSON.stringify(sdp));
+            })
+            .catch(setError);
+            stopOutgoingStream();
     }
 }
 
@@ -227,7 +235,7 @@ function onServerMessage(event) {
                 });
             } else {
                 if (msg.sdp != null) {
-                    onIncomingSDP(msg);
+                    onIncomingSDP(msg.sdp);
                 } else if (msg.ice != null) {
                     onIncomingICE(msg.ice);
                 } else {
@@ -273,7 +281,7 @@ function websocketServerConnect(callback) {
     } else {
         throw new Error ("Don't know how to connect to the signalling server with uri" + window.location);
     }
-    let ws_url = 'ws://' + ws_server + ':' + ws_port
+    let ws_url = 'wss://' + ws_server + ':' + ws_port
     // TODO
     // let ws_url = 'wss://' + ws_server + ':' + ws_port
     setStatus("Connecting to server " + ws_url);
@@ -317,7 +325,7 @@ function onRemoteStreamAdded(event) {
     }
 }
 function enableAudio() {
-    ws_conn.send('AUDIO_ON');
+    // ws_conn.send('AUDIO_ON');
     audioEnabled = true;
     if (!audioElement || audioElement.readyState != 4) {
         return;
@@ -325,7 +333,7 @@ function enableAudio() {
     audioElement.play();
 }
 function disableAudio() {
-    ws_conn.send('AUDIO_OFF');
+    // ws_conn.send('AUDIO_OFF');
     audioEnabled = false;
     if (!audioElement || audioElement.readyState != 4) {
         return;
@@ -333,7 +341,7 @@ function disableAudio() {
     audioElement.pause();
 }
 function enableVideo() {
-    ws_conn.send('VIDEO_ON');
+    // ws_conn.send('VIDEO_ON');
     videoEnabled = true;
     if (!remote_stream) {
         return;
@@ -345,7 +353,7 @@ function enableVideo() {
     }
 }
 function disableVideo() {
-    ws_conn.send('VIDEO_OFF');
+    // ws_conn.send('VIDEO_OFF');
     videoEnabled = false;
     if (!remote_stream) {
         return;
@@ -372,11 +380,34 @@ function playVideoSource() {
 function errorUserMediaHandler() {
     setError("Browser doesn't support getUserMedia!");
 }
+function createPeerConnection() {
+    peer_connection = new RTCPeerConnection({
+        iceServers: [     // Information about ICE servers - Use your own!
+          {
+            urls: "stun:stun.stunprotocol.org"
+          }
+        ]
+    });
+  
+    peer_connection.onicecandidate = handleICECandidateEvent;
+    peer_connection.ontrack = handleTrackEvent;
+    peer_connection.onnegotiationneeded = handleNegotiationNeededEvent;
+    peer_connection.onremovetrack = handleRemoveTrackEvent;
+    peer_connection.oniceconnectionstatechange = handleICEConnectionStateChangeEvent;
+    peer_connection.onicegatheringstatechange = handleICEGatheringStateChangeEvent;
+    peer_connection.onsignalingstatechange = handleSignalingStateChangeEvent;
+  }
 function createCall(msg, callback) {
     // Reset connection attempts because we connected successfully
     connect_attempts = 0;
     console.log('Creating RTCPeerConnection');
-    peer_connection = new RTCPeerConnection(rtc_configuration);
+    var options = {
+        optional: [
+            {DtlsSrtpKeyAgreement: true},
+            {RtpDataChannels: true}
+        ]
+    }
+    peer_connection = new RTCPeerConnection(rtc_configuration, options);
     peer_connection.onaddstream = onRemoteStreamAdded;
     peer_connection.ontrack = function(event) {
         if (event.track.kind === 'audio') {
@@ -385,13 +416,16 @@ function createCall(msg, callback) {
             console.log("Audio track added.");
         } else if (event.track.kind === 'video') {
             // TODO Fix vide element for DOCKED mode
-            videoElement = document.getElementById('video');
+            videoElement = document.getElementById('remote_video');
             videoElement.srcObject = event.streams[0];
             videoElement.load();
             console.log("Video track added.");
         }
         console.dir(event);
     };
+    peer_connection.onnegotiationneeded = function() {
+        console.log('AAAAAAAAAAAAA NEGOTIATION NEEDED!');
+    }
     //TODO 
     if (msg && msg.sdp) {
         peer_connection.setRemoteDescription(msg.sdp).then(() => {
@@ -400,7 +434,7 @@ function createCall(msg, callback) {
         .catch(setError);
     } else {
         createLocalStream(msg, function() {
-            peer_connection.createOffer(default_constraints)
+            peer_connection.createOffer({offerToReceiveAudio: 1, offerToReceiveVideo: 1})
             .then(function(offer) {
                 return peer_connection.setLocalDescription(offer);
             })
@@ -426,7 +460,9 @@ function createCall(msg, callback) {
             console.log("ICE Candidate was null, done");
             return;
         }
-        ws_conn.send(JSON.stringify({'ice': event.candidate}));
+        let candidate = JSON.stringify({'ice': event.candidate});
+        console.log('Sending ICE candidate: ', candidate);
+        ws_conn.send(candidate);
     };
 
     setStatus("Created peer connection for call, waiting for SDP");

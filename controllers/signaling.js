@@ -1,4 +1,4 @@
-const WSServer = require('ws').Server;
+const WebSocket = require('ws');
 const EventEmitter = require('events').EventEmitter;
 
 let Server;
@@ -146,21 +146,25 @@ let Server;
     return !!_localPeers[peerId];
   }
 
+  /**
+   * 
+   * @param engine {object} Configured HTTP or HTTPS server
+   */
   Server = class SignalingServer extends EventEmitter {
     constructor(options = {}) {
       super();
       _localPeers = {};
       _relay = options.relay || null;
-      _engine = options.engine || WSServer;
+      _engine = options.engine;
       _options = options;
     }
 
     start() {
       return new Promise((resolve, reject) => {
         try {
-          _server = new _engine(_options);
+           _server = new WebSocket.Server({ server: _engine });
         } catch (error) {
-          return reject(new TypeError('invalid engine'));
+          return reject(new TypeError('invalid engine: ' + error));
         }
 
         // Add event handlers

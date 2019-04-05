@@ -1,30 +1,22 @@
-const program = require('commander')
-const pkg = require('../package.json')
-
 const Server = require('./signaling')
-
+const program = require('commander');
 let controller = {};
 
-program
-  .version(pkg.version)
-  .option('-p, --port [port]', 'port to listen on [8080]', 8080)
-  .option('-v, --verbose', 'show verbose output')
-  .parse(process.argv)
+controller.init = function(engine) {
 
-const server = new Server({
-  port: program.port
-});
-
-if (program.verbose) {
-  server.on('add_peer', peer => {
-    console.log(`- Peer added with id ${peer.peerId}`)
+  const server = new Server({
+    engine
   });
-  server.on('remove_peer', peerId => {
-    console.log(`- Peer removed with id ${peerId}`)
-  });
-}
+  
+  if (program.verbose) {
+    server.on('add_peer', peer => {
+      console.log(`- Peer added with id ${peer.peerId}`)
+    });
+    server.on('remove_peer', peerId => {
+      console.log(`- Peer removed with id ${peerId}`)
+    });
+  }
 
-controller.init = function() {
   server.start().then(() => {
     console.log(`signal-fire instance started on port ${program.port}`)
     console.log('press ctrl+c to stop')

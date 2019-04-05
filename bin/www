@@ -6,29 +6,40 @@
 
 var app = require('../app');
 var debug = require('debug')('webrtc-server:server');
-var http = require('http');
 let controller = require('../controllers/controller');
+var https = require('https');
+var path = require('path');
+var fs = require('fs');
+var privateKey  = fs.readFileSync(path.join(__dirname, '../cert/key.pem'), 'utf8');
+var certificate = fs.readFileSync(path.join(__dirname, '../cert/cert.pem'), 'utf8');
+var credentials = {key: privateKey, cert: certificate};
+const pkg = require('../package.json');
+const program = require('commander');
+program
+  .version(pkg.version)
+  .option('-p, --port [port]', 'port to listen on [8443]', 8443)
+  .option('-v, --verbose', 'show verbose output')
+  .parse(process.argv)
+
+/**
+ * Create HTTPS server.
+ */
+var httpsServer = new https.createServer(credentials, app);
 
 /**
  * Get port from environment and store in Express.
  */
 
-var port = normalizePort(process.env.PORT || '3000');
+var port = normalizePort(program.port || 8443);
 app.set('port', port);
-
-/**
- * Create HTTP server.
- */
-
-var server = http.createServer(app);
 
 /**
  * Listen on provided port, on all network interfaces.
  */
 
-server.listen(port);
-server.on('error', onError);
-server.on('listening', onListening);
+httpsServer.listen(port);
+httpsServer.on('error', onError);
+httpsServer.on('listening', onListening);
 
 /**
  * Normalize a port into a number, string, or false.
@@ -83,11 +94,11 @@ function onError(error) {
  */
 
 function onListening() {
-  var addr = server.address();
+  var addr = httpsServer.address();
   var bind = typeof addr === 'string'
     ? 'pipe ' + addr
     : 'port ' + addr.port;
   debug('Listening on ' + bind);
 }
 
-controller.init();
+controller.init(httpsServer);
