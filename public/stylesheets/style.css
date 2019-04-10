@@ -6,3 +6,8 @@ body {
 a {
   color: #00B7FF;
 }
+
+#local_video {
+  width: 200px;
+  position: absolute;
+}

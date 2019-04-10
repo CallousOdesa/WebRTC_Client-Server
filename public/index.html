@@ -14,6 +14,7 @@
     <style>
       .error { color: red; }
     </style>
+    <link rel="stylesheet" href="stylesheets/style.css" />
     <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script src="javascripts/webrtc.js"></script>
     <script>
@@ -22,7 +23,7 @@
   </head>
 
   <body>
-    <div><video id="local_video" autoplay>Your browser doesn't support video</video></div>
+    <div><video id="local_video" muted autoplay>Your browser doesn't support video</video></div>
     <div><video id="remote_video" autoplay>Your browser doesn't support video</video></div>
     <div><audio id="streamAudio" autoplay>Your browser doesn't support video</audio></div>
     <div>Status: <span id="status">unknown</span></div>
@@ -32,6 +33,16 @@
       <div>Enter caller ID:</div>
       <div><input id="caller_peer_id" type="text"/></div>
       <button  onClick="connect()" >Connect to peer</button>
+      <p>Local</p>
+      <button  onClick="stopOutgoingAudioStream()" >Mute me</button>
+      <button  onClick="startOutgoingAudioStream()" >Unmute me</button>
+      <button  onClick="stopOutgoingVideoStream()" >Hide my video</button>
+      <button  onClick="startOutgoingVideoStream()" >Show my video</button>
+      <p>Remote</p>
+      <button  onClick="disableAudio()" >Mute remote</button>
+      <button  onClick="enableAudio()" >Unmute remote</button>
+      <button  onClick="disableVideo()" >Hide remote video</button>
+      <button  onClick="enableVideo()" >Show remote video</button>
     </div>
     
   </body>

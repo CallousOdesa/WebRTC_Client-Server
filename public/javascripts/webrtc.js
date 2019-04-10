@@ -1,32 +1,16 @@
-/* vim: set sts=4 sw=4 et :
- *
- * Demo Javascript app for negotiating and streaming a sendrecv webrtc stream
- * with a GStreamer app. Runs only in passive mode, i.e., responds to offers
- * with answers, exchanges ICE candidates, and streams.
- *
- * Author: Nirbheek Chauhan <nirbheek@centricular.com>
- */
-
-// Set this to override the automatic detection in websocketServerConnect()
 let ws_server;
 let ws_port;
-// Set this to use a specific peer id instead of a random one
 let default_peer_id;
-// Override with your own STUN servers if you want
-//let rtc_configuration = {iceServers: [{urls: "stun:stun.services.mozilla.com"},
-//                                      {urls: "stun:stun.l.google.com:19302"}]};
 let rtc_configuration = null;
-// The default constraints that will be attempted. Can be overriden by the user.
-let default_constraints = {video: true, audio: true};
-
+let mediaConstraints = {video: true, audio: true};
 let connect_attempts = 0;
-let peer_connection;
+let myPeerConnection;
 let ws_conn;
 let mediaStreamSource;
 let remote_stream;
-let local_stream;
+let localStream;
 let audioElement = null;
-let videoElement = null;
+let remoteVideo = null;
 let audioEnabled = false;
 let videoEnabled = false;
 let webRTCEndLoad = null;
@@ -56,144 +40,113 @@ function setError(text) {
 
 function resetIncomingStream() {
     // Reset the video element and stop showing the last received frame
-    if (videoElement) {    
-        videoElement.pause();
-        videoElement.srcObject = null;
+    if (remoteVideo) {    
+        remoteVideo.pause();
+        remoteVideo.srcObject = null;
     }
 }
-function startOutgoingStream() {
-    if (local_stream) {
-        // TODO Negotiation mechanism
-        // TODO Investigate new API and fix AddTrack 
-        // let audioTracks = local_stream.getAudioTracks();
-        // if (audioTracks.length == 1) {
-        //     if (senderAudio && senderAudio.track) {
-        //         peer_connection.removeTrack(senderAudio);
-        //     }
-        //     // senderAudio = peer_connection.addTrack(audioTracks[0], local_stream);
-        //     senderAudio = peer_connection.addTrack(audioTracks[0]);
-        //     peer_connection.createOffer({ offerToReceiveAudio: 1 })
-        //     // peer_connection.createOffer(default_constraints)
-        //     .then(function(offer) {
-        //         return peer_connection.setLocalDescription(offer);
-        //     })
-        //     .then(function() {
-        //         setStatus("Sending SDP offer");
-        //         sdp = {'sdp': peer_connection.localDescription}
-        //         console.log(JSON.stringify(peer_connection.localDescription));
-        //         ws_conn.send(JSON.stringify(sdp));
-        //     })
-        //     .catch(setError);
-        // } else {
-        //     console.error(`Audio tracks are ${audioTracks.length} is  not equal to 1. Please notify developers!`);
-        // }
-        let audioTracks = local_stream.getAudioTracks();
-        if (audioTracks.length == 1) {
-            audioTracks[0].enabled = true;
-        } else {
-            console.error(`Audio tracks are ${audioTracks.length} is  not equal to 1. Please notify developers!`);
-        }
+function startOutgoingAudioStream() {
+  if (localStream) {
+    let audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      senderAudio.replaceTrack(audioTrack);
     }
+  }
 }
-function stopOutgoingStream() {
-    // TODO Negotiation mechanism
-    // peer_connection.removeTrack(senderAudio);
-    // peer_connection.createOffer({ offerToReceiveAudio: 1 })
-    // .then(function(offer) {
-    //     return peer_connection.setLocalDescription(offer);
-    // })
-    // .then(function() {
-    //     setStatus("Sending SDP offer");
-    //     sdp = {'sdp': peer_connection.localDescription}
-    //     console.log(JSON.stringify(peer_connection.localDescription));
-    //     ws_conn.send(JSON.stringify(sdp));
-    // })
-    // .catch(setError);
-
-    // Release the webcam and mic
-    // TODO Investigate new API and fix AddTrack 
-    // if (senderAudio) {
-    //     peer_connection.removeTrack(senderAudio);
-    // }
-    // var senders = peer_connection.getSenders();
-    // senders.forEach(element => {
-    //     peer_connection.removeTrack(element);
-    // });
-    // peer_connection.dispatchEvent(new Event('negotiationneeded'));
-    
-    if (local_stream) {
-        let audioTracks = local_stream.getAudioTracks();
-        if (audioTracks.length == 1) {
-            audioTracks[0].enabled = false;
-        } else {
-            console.error(`Audio tracks are ${audioTracks.length} is  not equal to 1. Please notify developers!`);
-        }
+function stopOutgoingAudioStream() {
+  senderAudio.replaceTrack(null);
+}
+function startOutgoingVideoStream() {
+  if (localStream) {
+    let videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      senderVideo.replaceTrack(videoTrack);
     }
+  }
 }
-function createLocalStream(msg, callback) {
-    if (!local_stream) {
+function stopOutgoingVideoStream() {
+  senderVideo.replaceTrack(null);
+}
+function createLocalStream(callback) {
+    if (!localStream) {
         /* Send our video/audio to the other peer */
-        navigator.mediaDevices.getUserMedia(default_constraints)
+        navigator.mediaDevices.getUserMedia(mediaConstraints)
         .then((stream) => {
             console.log('Adding local stream');
-            peer_connection.addStream(stream);
-            local_stream = stream;
-            stream.getAudioTracks()[0].enabled = false;
-            document.getElementById('local_video').srcObject = stream;
-            // let audioTrack = local_stream.getAudioTracks()[0];
-            // audioTrack.enabled = true;
-            // senderAudio = peer_connection.addTrack(audioTrack);
-            // let videoTrack = local_stream.getVideoTracks()[0];
-            // videoTrack.enabled = true;
-            // senderVideo = peer_connection.addTrack(videoTrack);
-            // TODO
+            localStream = stream;
+            localVideo = document.getElementById("local_video");
+            localVideo.srcObject = localStream;
+            localStream.getTracks().forEach(track => {
+              if (track.kind == 'audio') {
+                senderAudio = myPeerConnection.addTrack(track, localStream)
+              } else if (track.kind == 'video') {
+                senderVideo = myPeerConnection.addTrack(track, localStream)
+              } 
+            });
             if (callback) {
-                callback(msg);    
+                callback();    
             }
         })
-        .catch(setError);
-    } else {
-        // TODO
-        if (callback) {
-            callback(msg);    
-        }
+        .catch(handleGetUserMediaError);
     }
 }
+function handleGetUserMediaError(e) {
+    switch(e.name) {
+      case "NotFoundError":
+        alert("Unable to open your call because no camera and/or microphone" +
+              "were found.");
+        break;
+      case "SecurityError":
+      case "PermissionDeniedError":
+        // Do nothing; this is the same as the user canceling the call.
+        break;
+      default:
+        alert("Error opening your camera and/or microphone: " + e.message);
+        break;
+    }
+  
+    closeVideoCall();
+  }
+  function closeVideoCall() {
+  
+    if (myPeerConnection) {
+      myPeerConnection.ontrack = null;
+      myPeerConnection.onremovetrack = null;
+      myPeerConnection.onremovestream = null;
+      myPeerConnection.onicecandidate = null;
+      myPeerConnection.oniceconnectionstatechange = null;
+      myPeerConnection.onsignalingstatechange = null;
+      myPeerConnection.onicegatheringstatechange = null;
+      myPeerConnection.onnegotiationneeded = null;
+  
+      if (remoteVideo.srcObject) {
+        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+      }
+  
+      if (localVideo.srcObject) {
+        localVideo.srcObject.getTracks().forEach(track => track.stop());
+      }
+  
+      myPeerConnection.close();
+      myPeerConnection = null;
+    }
+  
+    remoteVideo.removeAttribute("src");
+    remoteVideo.removeAttribute("srcObject");
+    localVideo.removeAttribute("src");
+    remoteVideo.removeAttribute("srcObject");
+
+  }
 // SDP offer received from peer, set remote description and create an answer
 function onIncomingSDP(description) {
     if (description.type == "answer") {
         setStatus("Got SDP answer");
-        peer_connection.setRemoteDescription(description);
+        myPeerConnection.setRemoteDescription(description);
         setStatus("Remote SDP set");
     } else if (description.type == "offer") {
         setStatus("Got SDP offer");
-        peer_connection.setRemoteDescription(new RTCSessionDescription(description))
-            .then(() => navigator.mediaDevices.getUserMedia(default_constraints))
-            .then(stream => peer_connection.addStream(stream))
-            .then(() => {
-                return peer_connection.createAnswer({
-                    offerToReceiveAudio: 1,
-                    offerToReceiveVideo: 1
-                });
-            })
-            .then(function(answer) {
-                return peer_connection.setLocalDescription(answer);
-            })
-            .then(function() {
-                setStatus("Sending SDP answer");
-                sdp = {'sdp': peer_connection.localDescription}
-                    console.log(JSON.stringify(peer_connection.localDescription));
-                ws_conn.send(JSON.stringify(sdp));
-            })
-            .catch(setError);
-            stopOutgoingStream();
+        handleVideoOfferMsg(description);
     }
-}
-
-// ICE candidate received from peer, add it to the peer connection
-function onIncomingICE(ice) {
-    let candidate = new RTCIceCandidate(ice);
-    peer_connection.addIceCandidate(candidate).catch(setError);
 }
 
 function onServerMessage(event) {
@@ -222,47 +175,31 @@ function onServerMessage(event) {
                 }
                 return;
             }
-            // Incoming JSON signals the beginning of a call
-            if (!peer_connection) {
-                createCall(msg, (msg) => {
-                    if (msg.sdp != null) {
-                        onIncomingSDP(msg.sdp);
-                    } else if (msg.ice != null) {
-                        onIncomingICE(msg.ice);
-                    } else {
-                        handleIncomingError("Unknown incoming JSON: " + msg);
-                    }
-                });
+            if (msg.sdp != null) {
+                onIncomingSDP(msg.sdp);
+            } else if (msg.ice != null) {
+                handleNewICECandidateMsg(msg.ice);
             } else {
-                if (msg.sdp != null) {
-                    onIncomingSDP(msg.sdp);
-                } else if (msg.ice != null) {
-                    onIncomingICE(msg.ice);
-                } else {
-                    handleIncomingError("Unknown incoming JSON: " + msg);
-                }
+                handleIncomingError("Unknown incoming JSON: " + msg);
             }
         }
     }
 }
-
 function onServerClose(event) {
     setStatus('Disconnected from server');
     resetIncomingStream();
     stopOutgoingStream();
-    if (peer_connection) {
-        peer_connection.close();
-        peer_connection = null;
+    if (myPeerConnection) {
+        myPeerConnection.close();
+        myPeerConnection = null;
     }
     remote_stream = null;
     mediaStreamSource = null;
 }
-
 function onServerError(event) {
     setError("Unable to connect to server, did you add an exception for the certificate?")
     window.setTimeout(websocketServerConnect, 3000);
 }
-
 function websocketServerConnect(callback) {
     connect_attempts++;
     if (connect_attempts > 3) {
@@ -306,7 +243,6 @@ function websocketServerConnect(callback) {
         webRTCStartLoad();
     }
 }
-
 function onRemoteStreamAdded(event) {
     remote_stream = event.stream;
 
@@ -349,7 +285,7 @@ function enableVideo() {
     let videoTracks = remote_stream.getVideoTracks();
     if (videoTracks.length > 0) {
         videoTracks[0].enabled = true;
-        videoElement.load();
+        remoteVideo.load();
     }
 }
 function disableVideo() {
@@ -364,12 +300,12 @@ function disableVideo() {
     }
 }
 function changeSource(element) {
-    if (videoElement) {
-        videoElement.pause();
-        videoElement.srcObject = null;
+    if (remoteVideo) {
+        remoteVideo.pause();
+        remoteVideo.srcObject = null;
     }
-    videoElement = element;
-    videoElement.srcObject = remote_stream;
+    remoteVideo = element;
+    remoteVideo.srcObject = remote_stream;
     playVideoSource();
 }
 function playVideoSource() {
@@ -381,93 +317,158 @@ function errorUserMediaHandler() {
     setError("Browser doesn't support getUserMedia!");
 }
 function createPeerConnection() {
-    peer_connection = new RTCPeerConnection({
-        iceServers: [     // Information about ICE servers - Use your own!
-          {
-            urls: "stun:stun.stunprotocol.org"
-          }
-        ]
-    });
-  
-    peer_connection.onicecandidate = handleICECandidateEvent;
-    peer_connection.ontrack = handleTrackEvent;
-    peer_connection.onnegotiationneeded = handleNegotiationNeededEvent;
-    peer_connection.onremovetrack = handleRemoveTrackEvent;
-    peer_connection.oniceconnectionstatechange = handleICEConnectionStateChangeEvent;
-    peer_connection.onicegatheringstatechange = handleICEGatheringStateChangeEvent;
-    peer_connection.onsignalingstatechange = handleSignalingStateChangeEvent;
-  }
-function createCall(msg, callback) {
-    // Reset connection attempts because we connected successfully
-    connect_attempts = 0;
-    console.log('Creating RTCPeerConnection');
     var options = {
         optional: [
             {DtlsSrtpKeyAgreement: true},
             {RtpDataChannels: true}
         ]
     }
-    peer_connection = new RTCPeerConnection(rtc_configuration, options);
-    peer_connection.onaddstream = onRemoteStreamAdded;
-    peer_connection.ontrack = function(event) {
-        if (event.track.kind === 'audio') {
-            audioElement = document.querySelector('audio');
-            audioElement.srcObject = event.streams[0];
-            console.log("Audio track added.");
-        } else if (event.track.kind === 'video') {
-            // TODO Fix vide element for DOCKED mode
-            videoElement = document.getElementById('remote_video');
-            videoElement.srcObject = event.streams[0];
-            videoElement.load();
-            console.log("Video track added.");
-        }
-        console.dir(event);
-    };
-    peer_connection.onnegotiationneeded = function() {
-        console.log('AAAAAAAAAAAAA NEGOTIATION NEEDED!');
-    }
-    //TODO 
-    if (msg && msg.sdp) {
-        peer_connection.setRemoteDescription(msg.sdp).then(() => {
-            createLocalStream(msg, callback);
-        })
-        .catch(setError);
-    } else {
-        createLocalStream(msg, function() {
-            peer_connection.createOffer({offerToReceiveAudio: 1, offerToReceiveVideo: 1})
-            .then(function(offer) {
-                return peer_connection.setLocalDescription(offer);
-            })
-            .then(function() {
-                setStatus("Sending SDP offer");
-                sdp = {'sdp': peer_connection.localDescription}
-                console.log(JSON.stringify(peer_connection.localDescription));
-                ws_conn.send(JSON.stringify(sdp));
-            })
-            .catch(setError);
-        });
-    }
-    
-    // TODO
-    // if (!msg.sdp) {
-    //     console.log("WARNING: First message wasn't an SDP message!?");
-    // }
+    myPeerConnection = new RTCPeerConnection({
+        iceServers: [     // Information about ICE servers - Use your own!
+          {
+            urls: "stun:stun.stunprotocol.org"
+          }
+        ]
+    },
+    options
+    );
 
-    peer_connection.onicecandidate = (event) => {
-        // We have a candidate, send it to the remote party with the
-        // same uuid
-        if (event.candidate == null) {
-            console.log("ICE Candidate was null, done");
-            return;
-        }
-        let candidate = JSON.stringify({'ice': event.candidate});
-        console.log('Sending ICE candidate: ', candidate);
-        ws_conn.send(candidate);
-    };
-
-    setStatus("Created peer connection for call, waiting for SDP");
+    myPeerConnection.onicecandidate = handleICECandidateEvent;
+    myPeerConnection.ontrack = handleTrackEvent;
+    myPeerConnection.onnegotiationneeded = handleNegotiationNeededEvent;
+    myPeerConnection.onremovetrack = handleRemoveTrackEvent;
+    myPeerConnection.oniceconnectionstatechange = handleICEConnectionStateChangeEvent;
+    myPeerConnection.onicegatheringstatechange = handleICEGatheringStateChangeEvent;
+    myPeerConnection.onsignalingstatechange = handleSignalingStateChangeEvent;
+    //myPeerConnection.onaddstream = onRemoteStreamAdded;
 }
+function handleICECandidateEvent(event) {
+    // We have a candidate, send it to the remote party with the
+    // same uuid
+    if (event.candidate == null) {
+        console.log("ICE Candidate was null, done");
+        return;
+    }
+    let candidate = JSON.stringify({'ice': event.candidate});
+    console.log('Sending ICE candidate: ', candidate);
+    ws_conn.send(candidate);
+}
+function handleTrackEvent() {
+    if (event.track.kind === 'audio') {
+        audioElement = document.querySelector('audio');
+        audioElement.srcObject = event.streams[0];
+        console.log("Audio track added.");
+    } else if (event.track.kind === 'video') {
+        // TODO Fix vide element for DOCKED mode
+        remoteVideo = document.getElementById('remote_video');
+        remoteVideo.srcObject = event.streams[0];
+        remoteVideo.load();
+        console.log("Video track added.");
+    }
+    console.dir(event);
+}
+function handleNegotiationNeededEvent(event) {
+  // Added workaround due to Chrome defect 
+  // https://bugs.chromium.org/p/chromium/issues/detail?id=740501
+  // Should be verified in M73
+  if (myPeerConnection._negotiating == true) return;
+  myPeerConnection._negotiating = true;
+  try {
+    console.log('AAAAAAAAAAAAA NEGOTIATION NEEDED!', event);
+  } finally {
+    myPeerConnection._negotiating = false;
+  }
+}
+function handleRemoveTrackEvent() {
+    console.log('handleRemoveTrackEvent');
+}
+function handleICEConnectionStateChangeEvent() {
+    console.log('handleICEConnectionStateChangeEvent');
+    switch(myPeerConnection.iceConnectionState) {
+        case "closed":
+        case "failed":
+        case "disconnected":
+          // closeVideoCall();
+          break;
+      }
+}
+function handleICEGatheringStateChangeEvent() {
+    console.log('handleICEGatheringStateChangeEvent');
+}
+function handleSignalingStateChangeEvent() {
+    console.log('handleSignalingStateChangeEvent');
+    switch(myPeerConnection.signalingState) {
+        case "closed":
+          closeVideoCall();
+          break;
+    }
+}
+function handleNewICECandidateMsg(ice) {
+    let candidate = new RTCIceCandidate(ice);
+    myPeerConnection.addIceCandidate(candidate).catch(setError);
+}
+function handleVideoOfferMsg(msg) {
+  localStream = null;
 
+  createPeerConnection();
+
+  var desc = new RTCSessionDescription(msg);
+
+  myPeerConnection.setRemoteDescription(desc).then(function () {
+    return navigator.mediaDevices.getUserMedia(mediaConstraints);
+  })
+  .then(function(stream) {
+    localStream = stream;
+    document.getElementById("local_video").srcObject = localStream;
+
+    localStream.getTracks().forEach(track => {
+      if (track.kind == 'audio') {
+        senderAudio = myPeerConnection.addTrack(track, localStream)
+      } else if (track.kind == 'video') {
+        senderVideo = myPeerConnection.addTrack(track, localStream)
+      }
+    });
+  })
+  .then(function() {
+    return myPeerConnection.createAnswer();
+  })
+  .then(function(answer) {
+    return myPeerConnection.setLocalDescription(answer);
+  })
+  .then(function() {
+    var msg = {
+      sdp: myPeerConnection.localDescription
+    };
+
+    sendToServer(msg);
+  })
+  .catch(handleGetUserMediaError);
+}
+function sendToServer (msg) {
+    ws_conn.send(JSON.stringify(msg));
+}
+function createCall() {
+  // Reset connection attempts because we connected successfully
+  connect_attempts = 0;
+  console.log('Creating RTCPeerConnection');
+
+  createPeerConnection();
+  createLocalStream(function() {
+    myPeerConnection.createOffer({offerToReceiveAudio: 1, offerToReceiveVideo: 1})
+    .then(function(offer) {
+        return myPeerConnection.setLocalDescription(offer);
+    })
+    .then(function() {
+        setStatus("Sending SDP offer");
+        sdp = {'sdp': myPeerConnection.localDescription}
+        console.log(JSON.stringify(myPeerConnection.localDescription));
+        ws_conn.send(JSON.stringify(sdp));
+    })
+    .catch(setError);
+  });
+
+  setStatus("Created peer connection for call, waiting for SDP");
+}
 connect = function() {
     let peer_id = document.getElementById('caller_peer_id').value;
     ws_conn.send('SESSION ' + peer_id);
