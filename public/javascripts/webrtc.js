@@ -188,7 +188,8 @@ function onServerMessage(event) {
 function onServerClose(event) {
     setStatus('Disconnected from server');
     resetIncomingStream();
-    stopOutgoingStream();
+    stopOutgoingAudioStream();
+    stopOutgoingVideoStream();
     if (myPeerConnection) {
         myPeerConnection.close();
         myPeerConnection = null;
