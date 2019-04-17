@@ -1,6 +1,7 @@
 const Server = require('./signaling')
 const program = require('commander');
 let controller = {};
+let webRTCClient = require('../public/javascripts/webrtc');
 
 controller.init = function(engine) {
 
@@ -24,8 +25,9 @@ controller.init = function(engine) {
       console.log()
       console.log('verbose output is enabled...')
     }
+    webRTCClient.connect();
   }).catch(err => {
-    console.log(`error starting signal-fire server: ${err.message}`)
+    console.log(`error starting signal-fire server: ${err}`)
   });
 };
 

@@ -15,29 +15,43 @@ let audioEnabled = false;
 let videoEnabled = false;
 let webRTCEndLoad = null;
 let webRTCStartLoad = null;
-senderAudio = null;
-
+let senderAudio = null;
+let senderVideo = null;
+let isNodeJS;
+try {
+    isNodeJS = !(typeof window !== 'undefined' && typeof window.document !== 'undefined');
+} catch (error) {
+    isNodeJS = error instanceof ReferenceError;
+}
+if (isNodeJS) {
+    let wrtc = require('wrtc');
+    WebSocket = require('ws');
+    RTCPeerConnection = wrtc.RTCPeerConnection;
+    RTCSessionDescription = wrtc.RTCSessionDescription;
+    RTCIceCandidate = wrtc.RTCIceCandidate;
+    getUserMedia = wrtc.getUserMedia;
+    module.exports = {
+        connect: websocketServerConnect
+    };
+} else {
+    getUserMedia = navigator.mediaDevices.getUserMedia;
+}
 function getOurId() {
     return Math.floor(Math.random() * (9000 - 10) + 10).toString();
 }
-
 function resetState() {
     ws_conn.close();
 }
-
 function handleIncomingError(error) {
     setError("ERROR: " + error);
     resetState();
 }
-
 function setStatus(text) {
     console.log(text);
 }
-
 function setError(text) {
     console.error(text);
 }
-
 function resetIncomingStream() {
     // Reset the video element and stop showing the last received frame
     if (remoteVideo) {    
@@ -54,7 +68,9 @@ function startOutgoingAudioStream() {
   }
 }
 function stopOutgoingAudioStream() {
-  senderAudio.replaceTrack(null);
+    if (senderAudio) {
+        senderAudio.replaceTrack(null);
+    }
 }
 function startOutgoingVideoStream() {
   if (localStream) {
@@ -65,17 +81,22 @@ function startOutgoingVideoStream() {
   }
 }
 function stopOutgoingVideoStream() {
-  senderVideo.replaceTrack(null);
+    if (senderVideo) {
+        senderVideo.replaceTrack(null);
+    }
 }
 function createLocalStream(callback) {
     if (!localStream) {
         /* Send our video/audio to the other peer */
-        navigator.mediaDevices.getUserMedia(mediaConstraints)
+        getUserMedia(mediaConstraints)
         .then((stream) => {
             console.log('Adding local stream');
             localStream = stream;
-            localVideo = document.getElementById("local_video");
-            localVideo.srcObject = localStream;
+            
+            if (!isNodeJS) {
+                localVideo = document.getElementById("local_video");
+                localVideo.srcObject = localStream;
+            }
             localStream.getTracks().forEach(track => {
               if (track.kind == 'audio') {
                 senderAudio = myPeerConnection.addTrack(track, localStream)
@@ -92,52 +113,58 @@ function createLocalStream(callback) {
 }
 function handleGetUserMediaError(e) {
     switch(e.name) {
-      case "NotFoundError":
-        alert("Unable to open your call because no camera and/or microphone" +
-              "were found.");
-        break;
-      case "SecurityError":
-      case "PermissionDeniedError":
-        // Do nothing; this is the same as the user canceling the call.
-        break;
-      default:
-        alert("Error opening your camera and/or microphone: " + e.message);
-        break;
+        case "NotFoundError": {
+            console.log("Unable to open your call because no camera and/or microphone" +
+                "were found.");
+            break;
+        }
+        case "SecurityError": {}
+        case "PermissionDeniedError":{
+            // Do nothing; this is the same as the user canceling the call.
+            break;
+        }
+        default: {
+            console.log("Error opening your camera and/or microphone: " + e.message);
+        }
     }
   
     closeVideoCall();
-  }
-  function closeVideoCall() {
-  
-    if (myPeerConnection) {
-      myPeerConnection.ontrack = null;
-      myPeerConnection.onremovetrack = null;
-      myPeerConnection.onremovestream = null;
-      myPeerConnection.onicecandidate = null;
-      myPeerConnection.oniceconnectionstatechange = null;
-      myPeerConnection.onsignalingstatechange = null;
-      myPeerConnection.onicegatheringstatechange = null;
-      myPeerConnection.onnegotiationneeded = null;
-  
-      if (remoteVideo.srcObject) {
-        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
-      }
-  
-      if (localVideo.srcObject) {
-        localVideo.srcObject.getTracks().forEach(track => track.stop());
-      }
-  
-      myPeerConnection.close();
-      myPeerConnection = null;
-    }
-  
-    remoteVideo.removeAttribute("src");
-    remoteVideo.removeAttribute("srcObject");
-    localVideo.removeAttribute("src");
-    remoteVideo.removeAttribute("srcObject");
+}
+function closeVideoCall() {
 
-  }
-// SDP offer received from peer, set remote description and create an answer
+    if (myPeerConnection) {
+        myPeerConnection.ontrack = null;
+        myPeerConnection.onremovetrack = null;
+        myPeerConnection.onremovestream = null;
+        myPeerConnection.onicecandidate = null;
+        myPeerConnection.oniceconnectionstatechange = null;
+        myPeerConnection.onsignalingstatechange = null;
+        myPeerConnection.onicegatheringstatechange = null;
+        myPeerConnection.onnegotiationneeded = null;
+
+        if (!isNodeJS) {
+            if (remoteVideo.srcObject) {
+                remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+            }
+
+            if (localVideo.srcObject) {
+                localVideo.srcObject.getTracks().forEach(track => track.stop());
+            }
+        }
+
+        myPeerConnection.close();
+        myPeerConnection = null;
+    }
+
+    
+    if (!isNodeJS) {
+        remoteVideo.removeAttribute("src");
+        remoteVideo.removeAttribute("srcObject");
+        localVideo.removeAttribute("src");
+        remoteVideo.removeAttribute("srcObject");
+    }
+
+}
 function onIncomingSDP(description) {
     if (description.type == "answer") {
         setStatus("Got SDP answer");
@@ -148,7 +175,6 @@ function onIncomingSDP(description) {
         handleVideoOfferMsg(description);
     }
 }
-
 function onServerMessage(event) {
     console.log("Received " + event.data);
     switch (event.data) {
@@ -199,7 +225,8 @@ function onServerClose(event) {
 }
 function onServerError(event) {
     setError("Unable to connect to server, did you add an exception for the certificate?")
-    window.setTimeout(websocketServerConnect, 3000);
+    console.dir(event);
+    setTimeout(websocketServerConnect, 3000);
 }
 function websocketServerConnect(callback) {
     connect_attempts++;
@@ -210,26 +237,40 @@ function websocketServerConnect(callback) {
     // Fetch the peer id to use
     peer_id = default_peer_id || getOurId();
     ws_port = ws_port || '8443';
-    if (window.location.protocol.startsWith ("file")) {
-        ws_server = ws_server || "127.0.0.1";
-    // TODO
-    // } else if (window.location.protocol.startsWith ("https")) {
-    } else if (window.location.protocol.startsWith ("http")) {
-        ws_server = ws_server || window.location.hostname;
+    if (isNodeJS) {
+        ws_server = '127.0.0.1';
     } else {
-        throw new Error ("Don't know how to connect to the signalling server with uri" + window.location);
+        if (window.location.protocol.startsWith ("file")) {
+            ws_server = ws_server || "127.0.0.1";
+        // TODO
+        // } else if (window.location.protocol.startsWith ("https")) {
+        } else if (window.location.protocol.startsWith ("http")) {
+            ws_server = ws_server || window.location.hostname;
+        } else {
+            throw new Error ("Don't know how to connect to the signalling server with uri" + window.location);
+        }
     }
+    
     let ws_url = 'wss://' + ws_server + ':' + ws_port
     // TODO
     // let ws_url = 'wss://' + ws_server + ':' + ws_port
     setStatus("Connecting to server " + ws_url);
-    ws_conn = new WebSocket(ws_url);
+    if (isNodeJS) {
+        ws_conn = new WebSocket(ws_url, {
+            rejectUnauthorized: false
+        });
+    } else {
+        ws_conn = new WebSocket(ws_url);
+    }
+    
     /* When connected, immediately register with the server */
     ws_conn.addEventListener('open', (event) => {
         // document.getElementById("peer-id").textContent = peer_id;
         ws_conn.send('HELLO ' + peer_id);
         setStatus("Registering with server");
-        document.getElementById('peer-id').innerText = peer_id;
+        if (!isNodeJS) {
+            document.getElementById('peer-id').innerText = peer_id;
+        }
         // TODO
         // if (callback) {
         //     callback(peer_id);
@@ -354,16 +395,20 @@ function handleICECandidateEvent(event) {
     console.log('Sending ICE candidate: ', candidate);
     ws_conn.send(candidate);
 }
-function handleTrackEvent() {
+function handleTrackEvent(event) {
     if (event.track.kind === 'audio') {
-        audioElement = document.querySelector('audio');
-        audioElement.srcObject = event.streams[0];
+        if (!isNodeJS) {
+            audioElement = document.querySelector('audio');
+            audioElement.srcObject = event.streams[0];
+        }        
         console.log("Audio track added.");
     } else if (event.track.kind === 'video') {
         // TODO Fix vide element for DOCKED mode
-        remoteVideo = document.getElementById('remote_video');
-        remoteVideo.srcObject = event.streams[0];
-        remoteVideo.load();
+        if (!isNodeJS) {
+            remoteVideo = document.getElementById('remote_video');
+            remoteVideo.srcObject = event.streams[0];
+            remoteVideo.load();
+        }
         console.log("Video track added.");
     }
     console.dir(event);
@@ -416,11 +461,14 @@ function handleVideoOfferMsg(msg) {
   var desc = new RTCSessionDescription(msg);
 
   myPeerConnection.setRemoteDescription(desc).then(function () {
-    return navigator.mediaDevices.getUserMedia(mediaConstraints);
+    return getUserMedia(mediaConstraints);
   })
   .then(function(stream) {
     localStream = stream;
-    document.getElementById("local_video").srcObject = localStream;
+    
+    if (!isNodeJS) {
+        document.getElementById("local_video").srcObject = localStream;
+    }
 
     localStream.getTracks().forEach(track => {
       if (track.kind == 'audio') {
