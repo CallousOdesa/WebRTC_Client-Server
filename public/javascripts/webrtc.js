@@ -367,8 +367,13 @@ function createPeerConnection() {
     }
     myPeerConnection = new RTCPeerConnection({
         iceServers: [     // Information about ICE servers - Use your own!
+        //   {
+        //     urls: "stun:172.30.157.173:3478"
+        //   },
           {
-            urls: "stun:stun.stunprotocol.org"
+            url: 'turn:172.30.157.173:3478',
+            username: 'username1',
+            credential: 'password1'
           }
         ]
     },
