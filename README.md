@@ -36,7 +36,7 @@
     {
         iceServers: [ 
           {
-            url: 'turn:172.30.157.173:3478',
+            url: 'turn:[ip_address_of_pc_where_coturn_turnserver_running]:3478',
             username: 'username1',
             credential: 'password1'
           }
