@@ -21,7 +21,7 @@
     "path": "^0.12.7",
     "pug": "2.0.0-beta11",
     "wrtc": "^0.3.7",
-    "ws": "^6.2.1"
+    "ws": "^7.4.6"
   },
   "author": "Andrii Melnik",
   "license": "ISC"
